@@ -8,15 +8,40 @@ import { logger } from "./logger";
 const generateCode = () => String(crypto.randomInt(100_000, 999_999));
 
 /**
- * Envoi du SMS. A brancher sur le fournisseur choisi (WhatsApp Business
- * en priorite, SMS en secours). En dev, le code est seulement logue.
+ * Envoi du code par WhatsApp (API Cloud de Meta, modele de categorie
+ * « Authentification » avec bouton « Copier le code »).
+ * Sans configuration WhatsApp, le code est seulement logue (dev / demo).
  */
-async function sendSms(phone: string, code: string) {
-  if (testToolsEnabled) {
-    logger.info({ phone, code }, "OTP (dev uniquement)");
-    return;
+async function sendCode(phone: string, code: string) {
+  if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
+    if (testToolsEnabled) {
+      logger.info({ phone, code }, "OTP (dev uniquement)");
+      return;
+    }
+    throw new Error("WhatsApp non configure (WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)");
   }
-  throw new Error("Fournisseur SMS non configure");
+
+  const res = await fetch(`https://graph.facebook.com/v21.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.WHATSAPP_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: phone.replace(/^\+/, ""),
+      type: "template",
+      template: {
+        name: env.WHATSAPP_TEMPLATE,
+        language: { code: env.WHATSAPP_TEMPLATE_LANG },
+        components: [
+          { type: "body", parameters: [{ type: "text", text: code }] },
+          { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: code }] },
+        ],
+      },
+    }),
+  });
+  if (!res.ok) {
+    logger.error({ phone, status: res.status, body: await res.text() }, "Echec de l'envoi WhatsApp");
+    throw new Error("Envoi WhatsApp impossible");
+  }
 }
 
 export async function requestOtp(phone: string) {
@@ -33,10 +58,10 @@ export async function requestOtp(phone: string) {
       expiresAt: new Date(Date.now() + env.OTP_TTL_MINUTES * 60_000),
     },
   });
-  await sendSms(phone, code);
+  await sendCode(phone, code);
   return {
     expiresInMinutes: env.OTP_TTL_MINUTES,
-    // Mode demo uniquement : pas de SMS, le code est renvoye pour pouvoir se connecter
+    // Mode demo uniquement : le code est renvoye pour pouvoir se connecter sans WhatsApp
     ...(testToolsEnabled ? { devCode: code } : {}),
   };
 }

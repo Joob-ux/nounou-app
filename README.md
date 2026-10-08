@@ -13,7 +13,7 @@ npm run seed                  # données de test
 npm run dev                   # http://localhost:4000
 ```
 
-En développement, le code OTP n'est pas envoyé par SMS : il est affiché dans les logs du serveur.
+En développement, le code OTP n'est pas envoyé par WhatsApp : il est affiché dans les logs du serveur.
 
 ## L'appli
 
@@ -35,7 +35,7 @@ Le fichier `render.yaml` crée l'API et la base PostgreSQL en une fois (offre gr
 
 Au démarrage, `render:start` crée les tables (`prisma db push`) puis charge les comptes de test (seed sans doublons).
 
-**Mode démo** (`DEMO_MODE=true`) : aucun SMS, le code OTP est renvoyé par l'API et se remplit seul dans la console ; console et routes `/api/dev` actives. N'importe qui ayant l'URL peut se connecter, y compris en admin de test : **aucune vraie donnée**, et passer `DEMO_MODE=false` avant l'arrivée de vrais utilisateurs.
+**Mode démo** (`DEMO_MODE=true`) : aucun message WhatsApp, le code OTP est renvoyé par l'API et se remplit seul dans la console ; console et routes `/api/dev` actives. N'importe qui ayant l'URL peut se connecter, y compris en admin de test : **aucune vraie donnée**, et passer `DEMO_MODE=false` avant l'arrivée de vrais utilisateurs.
 
 Limites de l'offre gratuite : le serveur s'endort après 15 min sans visite (≈ 1 min pour se réveiller), les pièces envoyées sont effacées à chaque redéploiement (disque non persistant), et la base gratuite Render expire au bout de 30 jours.
 
@@ -126,7 +126,7 @@ Les fichiers sont vérifiés par leur signature binaire (un `.exe` renommé en `
 ## Ce qui reste à brancher
 
 1. **Agrégateur de paiement.** Comparer PayTech et PayDunya sur les frais et l'API de versement, puis remplir `initWithProvider()` dans `payments.routes.ts`.
-2. **Envoi des SMS.** `sendSms()` dans `src/lib/otp.ts` : WhatsApp Business en priorité, SMS en secours.
+2. **Envoi des codes par WhatsApp.** `sendCode()` dans `src/lib/otp.ts` est branché sur l'API WhatsApp Cloud de Meta : renseigner `WHATSAPP_TOKEN` et `WHATSAPP_PHONE_NUMBER_ID`, et faire valider un modèle « Authentification » nommé `code_connexion` (français, bouton « Copier le code »).
 3. **Recherche par distance.** Activer PostGIS (`CREATE EXTENSION postgis;`) et remplacer le filtre par quartier par un rayon en kilomètres.
 4. **Stockage des pièces en production.** Remplacer `saveFile` / `readFile` de `src/lib/storage.ts` par S3 (ou équivalent) chiffré. L'accès admin et l'audit sont déjà en place.
 5. **Back-office (suite).** Gestion des litiges, versements à valider, interface web Next.js.

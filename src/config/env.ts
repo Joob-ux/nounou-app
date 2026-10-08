@@ -18,6 +18,11 @@ const schema = z.object({
   // Demo en ligne : affiche le code OTP, active la console et les routes de test.
   // A mettre a false des que de vrais utilisateurs arrivent.
   DEMO_MODE: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+  // Envoi des codes par WhatsApp (API Cloud de Meta). Vide : code seulement logue / affiche en demo.
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_TEMPLATE: z.string().default("code_connexion"),
+  WHATSAPP_TEMPLATE_LANG: z.string().default("fr"),
   UPLOAD_DIR: z.string().default("storage"),
   MAX_UPLOAD_MB: z.coerce.number().default(5),
 });

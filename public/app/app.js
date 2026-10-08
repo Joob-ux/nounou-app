@@ -361,8 +361,8 @@ function screenLogin() {
 
   view().innerHTML = `
     <form id="f-phone">
-      <p class="lead" style="margin-bottom:18px">Nous vous envoyons un code à 6 chiffres pour vous connecter. Pas de mot de passe à retenir.</p>
-      <label class="field"><span>Numéro de téléphone</span>
+      <p class="lead" style="margin-bottom:18px">Nous vous envoyons un code à 6 chiffres sur WhatsApp pour vous connecter. Pas de mot de passe à retenir.</p>
+      <label class="field"><span>Numéro WhatsApp</span>
         <div class="phone"><b>+221</b><input class="input" id="tel" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="77 123 45 67" required></div>
       </label>
       <button class="btn block">Recevoir le code</button>
@@ -387,8 +387,8 @@ function screenLogin() {
       $("#f-code").hidden = false;
       $$("[data-tel]").forEach((b) => b.closest(".panel")?.setAttribute("hidden", ""));
       $("#code-msg").textContent = r.devCode
-        ? `Mode démo : aucun SMS n'est envoyé, le code est déjà rempli.`
-        : `Code envoyé au ${r.phone}. Il expire dans ${r.expiresInMinutes} minutes.`;
+        ? `Mode démo : aucun message WhatsApp n'est envoyé, le code est déjà rempli.`
+        : `Code envoyé sur WhatsApp au ${r.phone}. Il expire dans ${r.expiresInMinutes} minutes.`;
       if (r.devCode) $("#code").value = r.devCode;
       $("#code").focus();
     });
