@@ -10,19 +10,20 @@ const schema = z.object({
   JWT_REFRESH_TTL: z.string().default("30d"),
   OTP_TTL_MINUTES: z.coerce.number().default(5),
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
-  FRAIS_SERVICE_PCT: z.coerce.number().default(10),
-  COMMISSION_PCT: z.coerce.number().default(10),
+  FRAIS_SERVICE_PCT: z.coerce.number().default(5),
+  COMMISSION_PCT: z.coerce.number().default(5),
   PAYMENT_PROVIDER: z.string().default("mock"),
   PAYMENT_API_KEY: z.string().optional(),
   PAYMENT_WEBHOOK_SECRET: z.string().default("change-moi"),
   // Demo en ligne : affiche le code OTP, active la console et les routes de test.
   // A mettre a false des que de vrais utilisateurs arrivent.
   DEMO_MODE: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
-  // Envoi des codes par WhatsApp (API Cloud de Meta). Vide : code seulement logue / affiche en demo.
-  WHATSAPP_TOKEN: z.string().optional(),
-  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
-  WHATSAPP_TEMPLATE: z.string().default("code_connexion"),
-  WHATSAPP_TEMPLATE_LANG: z.string().default("fr"),
+  // Envoi des codes par e-mail (SMTP : Brevo, Gmail...). Vide : code seulement logue / affiche en demo.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  MAIL_FROM: z.string().optional(),
   UPLOAD_DIR: z.string().default("storage"),
   MAX_UPLOAD_MB: z.coerce.number().default(5),
 });

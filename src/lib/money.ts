@@ -10,13 +10,15 @@ export type Breakdown = {
 
 /**
  * Tous les montants sont des entiers en FCFA.
+ * Frais et commission sont arrondis par heure : le parent voit un seul prix
+ * horaire (frais inclus) et prix horaire x heures tombe toujours juste.
  * Le tarif est fige au moment de la reservation : on ne le relit jamais
  * depuis le profil de la nounou une fois la reservation creee.
  */
 export function computeBreakdown(hourlyRateXof: number, hours: number): Breakdown {
   const amountXof = hourlyRateXof * hours;
-  const feeXof = Math.round((amountXof * env.FRAIS_SERVICE_PCT) / 100);
-  const commissionXof = Math.round((amountXof * env.COMMISSION_PCT) / 100);
+  const feeXof = Math.round((hourlyRateXof * env.FRAIS_SERVICE_PCT) / 100) * hours;
+  const commissionXof = Math.round((hourlyRateXof * env.COMMISSION_PCT) / 100) * hours;
   return {
     amountXof,
     feeXof,

@@ -89,6 +89,8 @@ model User {
   phone        String     @unique
   email        String?    @unique
   passwordHash String?
+  // E-mail confirme par le code recu a l'inscription
+  emailVerifiedAt DateTime?
   role         Role
   status       UserStatus @default(ACTIVE)
   lang         String     @default("fr")
@@ -103,18 +105,26 @@ model User {
   auditLogs     AuditLog[]
 }
 
+enum OtpPurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+// Codes a 6 chiffres envoyes par e-mail
 model OtpCode {
-  id        String    @id @default(cuid())
+  id        String     @id @default(cuid())
   userId    String?
-  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone     String
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String?
+  purpose   OtpPurpose @default(VERIFY_EMAIL)
+  phone     String?
   codeHash  String
   attempts  Int       @default(0)
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
-  @@index([phone, createdAt])
+  @@index([email, purpose, createdAt])
 }
 
 model RefreshToken {

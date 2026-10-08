@@ -56,23 +56,29 @@
 <main>
   <div class="col">
     <section>
-      <h2>1. Connexion par OTP</h2>
-      <p class="comptes">Comptes de test (clique pour remplir) :
-        parent <code data-tel="774444444">77 444 44 44</code>,
-        nounou Fatou <code data-tel="771111111">77 111 11 11</code>,
-        nounou Mariama <code data-tel="772222222">77 222 22 22</code>,
-        admin <code data-tel="770000000">77 000 00 00</code></p>
+      <h2>1. Connexion</h2>
+      <p class="comptes">Comptes de test, mot de passe <code>demo1234</code> (clique pour remplir) :
+        parent <code data-email="parent@nounou.test">parent@nounou.test</code>,
+        nounou Fatou <code data-email="fatou@nounou.test">fatou@nounou.test</code>,
+        nounou Mariama <code data-email="mariama@nounou.test">mariama@nounou.test</code>,
+        admin <code data-email="equipe@nounou.test">equipe@nounou.test</code></p>
       <div class="row">
-        <label>Téléphone<input id="tel" value="774444444"></label>
-        <label>Si nouveau compte<select id="role"><option value="PARENT">Parent</option><option value="NANNY">Nounou</option></select></label>
-        <button id="btnOtp">Recevoir le code</button>
+        <label>E-mail<input id="email" value="parent@nounou.test"></label>
+        <label>Mot de passe<input id="password" type="password" value="demo1234"></label>
+        <button id="btnLogin" class="vert">Se connecter</button>
+        <button id="btnLogout" class="clair">Déconnexion</button>
+      </div>
+      <p class="aide">Nouveau compte : remplis aussi le numéro et le rôle, puis confirme avec le code reçu par e-mail.</p>
+      <div class="row">
+        <label>Téléphone<input id="tel" placeholder="77 123 45 67"></label>
+        <label>Rôle<select id="role"><option value="PARENT">Parent</option><option value="NANNY">Nounou</option></select></label>
+        <button id="btnRegister">S'inscrire</button>
       </div>
       <div class="row">
         <label>Code reçu<input id="code" maxlength="6" placeholder="6 chiffres"></label>
-        <button id="btnVerify" class="vert">Se connecter</button>
-        <button id="btnLogout" class="clair">Déconnexion</button>
+        <button id="btnVerify" class="vert">Confirmer l'e-mail</button>
       </div>
-      <p class="aide">Mode démo : aucun message WhatsApp n'est envoyé, le code se remplit tout seul.</p>
+      <p class="aide">Mode démo : aucun e-mail n'est envoyé, le code se remplit tout seul.</p>
     </section>
 
     <section id="secParent" class="cache">

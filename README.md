@@ -13,13 +13,15 @@ npm run seed                  # données de test
 npm run dev                   # http://localhost:4000
 ```
 
-En développement, le code OTP n'est pas envoyé par WhatsApp : il est affiché dans les logs du serveur.
+En développement, le code de confirmation n'est pas envoyé par e-mail (tant que `SMTP_HOST` est vide) : il est affiché dans les logs du serveur.
+
+Comptes de démonstration (créés par `npm run seed`), tous avec le mot de passe `demo1234` : `parent@nounou.test`, `fatou@nounou.test`, `mariama@nounou.test`, `equipe@nounou.test` (admin).
 
 ## L'appli
 
 Servie à la racine du serveur (`/`), sans étape de build : `public/app/` (HTML, CSS et JavaScript simples).
 
-- **Parents** : inscription par OTP, profil famille et enfants, recherche par quartier, type de garde et profil (expérimentées / étudiantes), fiche nounou avec disponibilités et avis, réservation avec récapitulatif du prix, paiement Wave / Orange Money / Free Money / carte, suivi des réservations, annulation avec aperçu du remboursement, avis en 4 critères.
+- **Parents** : inscription par e-mail + mot de passe + numéro (code de confirmation par e-mail), profil famille et enfants, recherche par quartier, type de garde et profil (expérimentées / étudiantes), fiche nounou avec disponibilités et avis, réservation avec récapitulatif du prix, paiement Wave / Orange Money / Free Money / carte, suivi des réservations, annulation avec aperçu du remboursement, avis en 4 critères.
 - **Nounous** : création du profil, dossier de vérification pièce par pièce (motif affiché si refus), demandes à accepter ou refuser, arrivée et fin de garde géolocalisées, gains et demande de versement, disponibilités hebdomadaires, mode examens.
 - **Équipe** : file des dossiers, ouverture des pièces, validation ou refus avec motif, décision après entretien, suspension, activité sur 30 jours. Mise en page large sur ordinateur.
 
@@ -35,7 +37,7 @@ Le fichier `render.yaml` crée l'API et la base PostgreSQL en une fois (offre gr
 
 Au démarrage, `render:start` crée les tables (`prisma db push`) puis charge les comptes de test (seed sans doublons).
 
-**Mode démo** (`DEMO_MODE=true`) : aucun message WhatsApp, le code OTP est renvoyé par l'API et se remplit seul dans la console ; console et routes `/api/dev` actives. N'importe qui ayant l'URL peut se connecter, y compris en admin de test : **aucune vraie donnée**, et passer `DEMO_MODE=false` avant l'arrivée de vrais utilisateurs.
+**Mode démo** (`DEMO_MODE=true`) : sans SMTP configuré, aucun e-mail n'est envoyé ; le code de confirmation est renvoyé par l'API et se remplit seul dans la console ; console et routes `/api/dev` actives. N'importe qui ayant l'URL peut se connecter, y compris en admin de test : **aucune vraie donnée**, et passer `DEMO_MODE=false` avant l'arrivée de vrais utilisateurs.
 
 Limites de l'offre gratuite : le serveur s'endort après 15 min sans visite (≈ 1 min pour se réveiller), les pièces envoyées sont effacées à chaque redéploiement (disque non persistant), et la base gratuite Render expire au bout de 30 jours.
 
@@ -52,12 +54,13 @@ prisma/schema.prisma       modèle de données complet
 prisma/seed.ts             jeu de données de test
 src/config/env.ts          variables d'environnement validées au démarrage
 src/lib/money.ts           frais, commission, politique d'annulation
-src/lib/otp.ts             génération et vérification des codes
+src/lib/otp.ts             codes à 6 chiffres envoyés par e-mail (confirmation, mot de passe oublié)
+src/lib/mail.ts            envoi des e-mails (SMTP)
 src/lib/tokens.ts          JWT d'accès + refresh tokens hachés
 src/middleware/            authentification, validation Zod, erreurs
 src/lib/storage.ts         stockage des pièces (disque en dev, S3 plus tard)
 src/lib/audit.ts           journal des actions du back-office
-src/modules/auth/          inscription et connexion par OTP
+src/modules/auth/          inscription, connexion par e-mail + mot de passe, mot de passe oublié
 src/modules/parents/       profil famille et enfants
 src/modules/nannies/       recherche, profil nounou, disponibilités, dossier de vérification
 src/modules/admin/         back-office : validation des dossiers, suspensions, stats, audit
@@ -69,8 +72,12 @@ src/modules/payments/      paiement, webhook signé, portefeuille, versements
 
 | Méthode | Route | Rôle | Description |
 | --- | --- | --- | --- |
-| POST | `/api/auth/otp/request` | — | Envoie un code à 6 chiffres |
-| POST | `/api/auth/otp/verify` | — | Vérifie le code, crée le compte si besoin, renvoie les jetons |
+| POST | `/api/auth/register` | — | Inscription (e-mail, mot de passe, numéro, rôle) : envoie un code par e-mail |
+| POST | `/api/auth/verify-email` | — | Vérifie le code, confirme l'e-mail, renvoie les jetons |
+| POST | `/api/auth/verify-email/resend` | — | Renvoie un code (inscription non confirmée) |
+| POST | `/api/auth/login` | — | E-mail + mot de passe ; si l'e-mail n'est pas confirmé, renvoie `needsVerification` et un nouveau code |
+| POST | `/api/auth/password/forgot` | — | Envoie un code pour changer de mot de passe (même réponse si l'e-mail est inconnu) |
+| POST | `/api/auth/password/reset` | — | Code + nouveau mot de passe, coupe les autres sessions |
 | POST | `/api/auth/refresh` | — | Renouvelle l'access token |
 | GET | `/api/auth/me` | connecté | Rôle, statut, `hasProfile` (sinon l'appli ouvre « compléter mon profil ») |
 | POST | `/api/auth/logout` | connecté | Révoque tous les refresh tokens |
@@ -110,10 +117,10 @@ src/modules/payments/      paiement, webhook signé, portefeuille, versements
 
 ## Règles métier déjà codées
 
-- **Montants** en entiers FCFA. Frais de service 10 % payés par le parent, commission 10 % retenue sur la nounou. Le tarif horaire est figé dans la réservation : une hausse ultérieure du profil ne change pas les réservations passées.
+- **Montants** en entiers FCFA. Frais de service 5 % payés par le parent, commission 5 % retenue sur la nounou (`FRAIS_SERVICE_PCT`, `COMMISSION_PCT`), arrondis par heure. Ces pourcentages ne sont jamais affichés : le parent voit un prix horaire frais inclus, la nounou voit ce qu'elle touche. Le tarif horaire est figé dans la réservation : une hausse ultérieure du profil ne change pas les réservations passées.
 - **Séquestre.** Le paiement passe en `ESCROW` au webhook. Le check-out crédite le net en `pendingXof`. `releaseDueFunds()` tourne toutes les 15 minutes et ne libère que les missions terminées depuis plus de 24 h et sans litige ouvert.
 - **Recherche.** Seules les nounous `VERIFIED` et hors période d'examens remontent.
-- **Sécurité.** Refresh tokens hachés en base, OTP haché avec bcrypt et limité en tentatives, webhook vérifié par HMAC à comparaison à temps constant, pièces d'identité jamais exposées par l'API publique.
+- **Sécurité.** Refresh tokens hachés en base, mots de passe et codes hachés avec bcrypt, codes limités en tentatives, webhook vérifié par HMAC à comparaison à temps constant, pièces d'identité jamais exposées par l'API publique.
 
 ## Vérification des nounous (4 niveaux)
 
@@ -126,7 +133,7 @@ Les fichiers sont vérifiés par leur signature binaire (un `.exe` renommé en `
 ## Ce qui reste à brancher
 
 1. **Agrégateur de paiement.** Comparer PayTech et PayDunya sur les frais et l'API de versement, puis remplir `initWithProvider()` dans `payments.routes.ts`.
-2. **Envoi des codes par WhatsApp.** `sendCode()` dans `src/lib/otp.ts` est branché sur l'API WhatsApp Cloud de Meta : renseigner `WHATSAPP_TOKEN` et `WHATSAPP_PHONE_NUMBER_ID`, et faire valider un modèle « Authentification » nommé `code_connexion` (français, bouton « Copier le code »).
+2. **Envoi des e-mails.** Renseigner `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` et `MAIL_FROM` (Brevo gratuit : 300 e-mails par jour, `smtp-relay.brevo.com`, port 587).
 3. **Recherche par distance.** Activer PostGIS (`CREATE EXTENSION postgis;`) et remplacer le filtre par quartier par un rayon en kilomètres.
 4. **Stockage des pièces en production.** Remplacer `saveFile` / `readFile` de `src/lib/storage.ts` par S3 (ou équivalent) chiffré. L'accès admin et l'audit sont déjà en place.
 5. **Back-office (suite).** Gestion des litiges, versements à valider, interface web Next.js.

@@ -56,7 +56,7 @@ const essayer = (fn) => async (...args) => {
 
 function majSession(hasProfile) {
   $("session").textContent = user
-    ? `${user.role} · ${user.phone}${hasProfile === false ? " · profil à compléter" : ""}`
+    ? `${user.role} · ${user.email || user.phone}${hasProfile === false ? " · profil à compléter" : ""}`
     : "Non connecté";
   $("secParent").classList.toggle("cache", user?.role !== "PARENT");
   $("secNanny").classList.toggle("cache", user?.role !== "NANNY");
@@ -64,21 +64,33 @@ function majSession(hasProfile) {
 }
 
 /* 1. Connexion */
-document.querySelectorAll("[data-tel]").forEach((el) =>
-  el.addEventListener("click", () => { $("tel").value = el.dataset.tel; }));
+document.querySelectorAll("[data-email]").forEach((el) =>
+  el.addEventListener("click", () => { $("email").value = el.dataset.email; $("password").value = "demo1234"; }));
 
-$("btnOtp").addEventListener("click", essayer(async () => {
-  const r = await call("POST", "/auth/otp/request", { phone: $("tel").value });
-  if (r.devCode) $("code").value = r.devCode; // mode demo : pas de SMS
-  $("code").focus();
-}));
-
-$("btnVerify").addEventListener("click", essayer(async () => {
-  const r = await call("POST", "/auth/otp/verify", { phone: $("tel").value, code: $("code").value.trim(), role: $("role").value });
+function ouvrirSession(r) {
   token = r.accessToken;
   user = r.user;
   majSession(r.hasProfile);
   ["pVue", "nVue", "aListe", "aDossier", "reservations", "wallet"].forEach((id) => { $(id).innerHTML = ""; });
+}
+
+$("btnLogin").addEventListener("click", essayer(async () => {
+  const r = await call("POST", "/auth/login", { email: $("email").value, password: $("password").value });
+  if (r.needsVerification) {
+    if (r.devCode) $("code").value = r.devCode; // mode demo : pas d'e-mail
+    return $("code").focus();
+  }
+  ouvrirSession(r);
+}));
+
+$("btnRegister").addEventListener("click", essayer(async () => {
+  const r = await call("POST", "/auth/register", { email: $("email").value, password: $("password").value, phone: $("tel").value, role: $("role").value });
+  if (r.devCode) $("code").value = r.devCode; // mode demo : pas d'e-mail
+  $("code").focus();
+}));
+
+$("btnVerify").addEventListener("click", essayer(async () => {
+  ouvrirSession(await call("POST", "/auth/verify-email", { email: $("email").value, code: $("code").value.trim() }));
 }));
 
 $("btnLogout").addEventListener("click", essayer(async () => {

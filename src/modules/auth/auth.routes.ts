@@ -5,10 +5,18 @@ import { asyncHandler } from "../../middleware/error";
 import { authenticate } from "../../middleware/auth";
 import { revokeAllRefreshTokens } from "../../lib/tokens";
 import { testToolsEnabled } from "../../config/env";
-import { refreshSchema, requestOtpSchema, verifyOtpSchema } from "./auth.schema";
+import {
+  emailOnlySchema,
+  loginSchema,
+  refreshSchema,
+  registerSchema,
+  resetPasswordSchema,
+  verifyEmailSchema,
+} from "./auth.schema";
 import * as service from "./auth.service";
 
-const otpLimiter = rateLimit({
+// Inscription, connexion et codes : limite les essais de mots de passe et l'envoi d'e-mails
+const authLimiter = rateLimit({
   windowMs: 15 * 60_000,
   // Plus souple en demo : on alterne parent / nounou / admin depuis le meme reseau
   limit: testToolsEnabled ? 60 : 10,
@@ -19,20 +27,58 @@ const otpLimiter = rateLimit({
 export const authRouter = Router();
 
 authRouter.post(
-  "/otp/request",
-  otpLimiter,
-  validate(requestOtpSchema),
+  "/register",
+  authLimiter,
+  validate(registerSchema),
   asyncHandler(async (req, res) => {
-    res.json(await service.startLogin(req.body.phone));
+    const { email, password, phone, role } = req.body;
+    res.json(await service.register(email, password, phone, role));
   }),
 );
 
 authRouter.post(
-  "/otp/verify",
-  otpLimiter,
-  validate(verifyOtpSchema),
+  "/verify-email",
+  authLimiter,
+  validate(verifyEmailSchema),
   asyncHandler(async (req, res) => {
-    res.json(await service.completeLogin(req.body.phone, req.body.code, req.body.role));
+    res.json(await service.verifyEmail(req.body.email, req.body.code));
+  }),
+);
+
+authRouter.post(
+  "/verify-email/resend",
+  authLimiter,
+  validate(emailOnlySchema),
+  asyncHandler(async (req, res) => {
+    res.json(await service.resendVerification(req.body.email));
+  }),
+);
+
+authRouter.post(
+  "/login",
+  authLimiter,
+  validate(loginSchema),
+  asyncHandler(async (req, res) => {
+    res.json(await service.login(req.body.email, req.body.password));
+  }),
+);
+
+authRouter.post(
+  "/password/forgot",
+  authLimiter,
+  validate(emailOnlySchema),
+  asyncHandler(async (req, res) => {
+    res.json(await service.forgotPassword(req.body.email));
+  }),
+);
+
+authRouter.post(
+  "/password/reset",
+  authLimiter,
+  validate(resetPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const { email, code, password } = req.body;
+    res.json(await service.resetPassword(email, code, password));
   }),
 );
 

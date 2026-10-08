@@ -26,6 +26,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.4.0",
+    "nodemailer": "^10.0.16",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
     "zod": "^3.23.8"
@@ -37,6 +38,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/multer": "^2.3.0",
     "@types/node": "^22.9.0",
+    "@types/nodemailer": "^8.0.2",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"

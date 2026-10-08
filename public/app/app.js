@@ -12,6 +12,10 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const fcfa = (n) => `${Number(n || 0).toLocaleString("fr-FR")} F`;
 const plural = (n, word) => `${n} ${word}${n > 1 ? "s" : ""}`;
+// Les frais de la plateforme sont inclus dans le prix affiche aux parents,
+// et deja retires de ce qu'on affiche aux nounous (arrondi par heure, comme l'API).
+const prixParent = (rate) => rate + Math.round((rate * S.config.feePct) / 100);
+const netNounou = (rate) => rate - Math.round((rate * S.config.commissionPct) / 100);
 
 const QUARTIERS = [
   "Almadies", "Fann", "Grand Yoff", "HLM", "Liberté 6", "Médina", "Mermoz", "Ngor",
@@ -111,7 +115,7 @@ const store = {
 };
 
 const S = {
-  config: { demo: false, feePct: 10, commissionPct: 10 },
+  config: { demo: false, feePct: 5, commissionPct: 5 },
   token: store.get("token"),
   refresh: store.get("refresh"),
   user: store.get("user"),
@@ -171,7 +175,14 @@ async function api(method, path, body, retry = true) {
 /** Les messages de l'API sont sans accents : on les rend lisibles pour l'utilisateur. */
 function humanize(msg) {
   if (!msg) return msg;
+  msg = msg.replace(/(^|, )[a-zA-Z.]+: /g, "$1"); // erreurs de validation : "email: ..." -> "..."
   const fix = {
+    "E-mail ou mot de passe incorrect": "E-mail ou mot de passe incorrect",
+    "Un compte existe deja avec cet e-mail": "Un compte existe déjà avec cet e-mail. Connectez-vous, ou utilisez « Mot de passe oublié ».",
+    "Ce numero est deja utilise par un autre compte": "Ce numéro est déjà utilisé par un autre compte",
+    "Numero de telephone senegalais invalide": "Numéro de téléphone sénégalais invalide",
+    "Aucune inscription en attente pour cet e-mail": "Ce compte est déjà confirmé, connectez-vous",
+    "Trop de tentatives, demandez un nouveau code": "Trop de tentatives, demandez un nouveau code",
     "Profil famille non cree": "Profil famille à créer",
     "Nounou indisponible": "Cette nounou n'est plus disponible",
     "La date est deja passee": "Cette date est déjà passée",
@@ -316,6 +327,8 @@ window.addEventListener("hashchange", render);
 async function publicRoute(path) {
   setTabs(null);
   if (path === "connexion") return screenLogin();
+  if (path === "inscription") return screenSignup();
+  if (path === "mot-de-passe") return screenForgot();
   return screenWelcome();
 }
 
@@ -344,8 +357,53 @@ function screenWelcome() {
   $$("[data-role]").forEach((b) => b.addEventListener("click", () => {
     S.pendingRole = b.dataset.role;
     store.set("pendingRole", S.pendingRole);
-    go("#/connexion");
+    go("#/inscription");
   }));
+}
+
+const DEMO_PASSWORD = "demo1234";
+
+/** Apres connexion : profil a completer ou accueil. */
+function loggedIn(r) {
+  saveSession(r);
+  toast(r.isNew ? "Bienvenue !" : "Vous êtes connecté");
+  go(r.hasProfile ? "#/" : "#/bienvenue");
+}
+
+const codeSentMsg = (r) => r.devCode
+  ? "Mode démo : aucun e-mail n'est envoyé, le code est déjà rempli."
+  : `Code envoyé à ${r.email}. Il expire dans ${r.expiresInMinutes} minutes. Pensez à regarder dans les courriers indésirables.`;
+
+const passwordField = (label, autocomplete) => `
+  <label class="field"><span>${label}</span><input class="input" id="password" type="password" autocomplete="${autocomplete}" minlength="8" maxlength="72" required>
+    ${autocomplete === "new-password" ? "<small>8 caractères minimum.</small>" : ""}</label>`;
+
+const codeField = (r) => `
+  <label class="field"><span>Code reçu par e-mail</span>
+    <input class="input code-input" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" value="${esc(r.devCode || "")}" required>
+  </label>`;
+
+/** Etape « code recu par e-mail » qui confirme l'inscription. */
+function screenVerifyEmail(r) {
+  setHeader("Confirmer votre e-mail", "#/connexion");
+  view().innerHTML = `
+    <form id="f-code">
+      <p class="lead" id="code-msg" style="margin-bottom:18px">${esc(codeSentMsg(r))}</p>
+      ${codeField(r)}
+      <button class="btn block">Confirmer</button>
+      <p style="margin-top:14px;text-align:center"><button type="button" class="link-btn" id="resend">Renvoyer le code</button></p>
+    </form>`;
+  $("#code").focus();
+  $("#resend").addEventListener("click", (e) => run(e.currentTarget, async () => {
+    const again = await api("POST", "/auth/verify-email/resend", { email: r.email });
+    $("#code-msg").textContent = codeSentMsg(again);
+    if (again.devCode) $("#code").value = again.devCode;
+    toast("Nouveau code envoyé");
+  }));
+  $("#f-code").addEventListener("submit", (e) => {
+    e.preventDefault();
+    run(e.submitter, async () => loggedIn(await api("POST", "/auth/verify-email", { email: r.email, code: $("#code").value.trim() })));
+  });
 }
 
 function screenLogin() {
@@ -353,55 +411,99 @@ function screenLogin() {
   const demo = S.config.demo ? `
     <div class="panel" style="margin-top:22px">
       <h3 style="margin-bottom:6px">Comptes de démonstration</h3>
-      <p class="muted small">Touchez un compte pour remplir le numéro.</p>
-      ${[["774444444", "Parent", "Famille Diallo, Mermoz"], ["771111111", "Nounou", "Fatou Ndiaye, étudiante"], ["772222222", "Nounou", "Mariama Sow, 9 ans d'expérience"], ["770000000", "Équipe", "Back-office de validation"]]
-        .map(([tel, role, who]) => `<button class="list-line link-like" data-tel="${tel}" style="width:100%;background:none;border:0;border-bottom:1px solid var(--line);text-align:left;cursor:pointer">
-          <span><b>${role}</b><br><span class="muted small">${who}</span></span><span class="muted">${tel.replace(/(\d{2})(\d{3})(\d{2})(\d{2})/, "$1 $2 $3 $4")}</span></button>`).join("")}
+      <p class="muted small">Touchez un compte pour le remplir (mot de passe ${DEMO_PASSWORD}).</p>
+      ${[["parent@nounou.test", "Parent", "Famille Diallo, Mermoz"], ["fatou@nounou.test", "Nounou", "Fatou Ndiaye, étudiante"], ["mariama@nounou.test", "Nounou", "Mariama Sow, 9 ans d'expérience"], ["equipe@nounou.test", "Équipe", "Back-office de validation"]]
+        .map(([email, role, who]) => `<button class="list-line link-like" data-email="${email}" style="width:100%;background:none;border:0;border-bottom:1px solid var(--line);text-align:left;cursor:pointer">
+          <span><b>${role}</b><br><span class="muted small">${who}</span></span><span class="muted small">${email}</span></button>`).join("")}
     </div>` : "";
 
   view().innerHTML = `
-    <form id="f-phone">
-      <p class="lead" style="margin-bottom:18px">Nous vous envoyons un code à 6 chiffres sur WhatsApp pour vous connecter. Pas de mot de passe à retenir.</p>
-      <label class="field"><span>Numéro WhatsApp</span>
-        <div class="phone"><b>+221</b><input class="input" id="tel" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="77 123 45 67" required></div>
-      </label>
-      <button class="btn block">Recevoir le code</button>
-    </form>
-    <form id="f-code" hidden>
-      <p class="lead" id="code-msg" style="margin-bottom:18px"></p>
-      <label class="field"><span>Code reçu</span>
-        <input class="input code-input" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required>
-      </label>
+    <form id="f-login">
+      <label class="field"><span>E-mail</span><input class="input" id="email" type="email" autocomplete="email" required></label>
+      ${passwordField("Mot de passe", "current-password")}
       <button class="btn block">Se connecter</button>
-      <p style="margin-top:14px;text-align:center"><button type="button" class="link-btn" id="change-tel">Changer de numéro</button></p>
+      <p style="margin-top:14px;text-align:center"><a href="#/mot-de-passe">Mot de passe oublié ?</a></p>
+      <p class="muted small" style="text-align:center">Pas encore de compte ? <a href="#/inscription">Créer un compte</a></p>
     </form>
     ${demo}`;
 
-  $$("[data-tel]").forEach((b) => b.addEventListener("click", () => { $("#tel").value = b.dataset.tel; $("#tel").focus(); }));
+  $$("[data-email]").forEach((b) => b.addEventListener("click", () => {
+    $("#email").value = b.dataset.email;
+    $("#password").value = DEMO_PASSWORD;
+    $("#f-login button.btn").focus();
+  }));
 
-  $("#f-phone").addEventListener("submit", (e) => {
+  $("#f-login").addEventListener("submit", (e) => {
     e.preventDefault();
     run(e.submitter, async () => {
-      const r = await api("POST", "/auth/otp/request", { phone: $("#tel").value });
-      $("#f-phone").hidden = true;
-      $("#f-code").hidden = false;
-      $$("[data-tel]").forEach((b) => b.closest(".panel")?.setAttribute("hidden", ""));
-      $("#code-msg").textContent = r.devCode
-        ? `Mode démo : aucun message WhatsApp n'est envoyé, le code est déjà rempli.`
-        : `Code envoyé sur WhatsApp au ${r.phone}. Il expire dans ${r.expiresInMinutes} minutes.`;
-      if (r.devCode) $("#code").value = r.devCode;
-      $("#code").focus();
+      const r = await api("POST", "/auth/login", { email: $("#email").value, password: $("#password").value });
+      // Inscription jamais confirmee : un nouveau code vient d'etre envoye
+      if (r.needsVerification) return screenVerifyEmail(r);
+      loggedIn(r);
     });
   });
-  $("#change-tel").addEventListener("click", () => screenLogin());
+}
 
-  $("#f-code").addEventListener("submit", (e) => {
+function screenSignup() {
+  setHeader("Créer un compte", "#/");
+  view().innerHTML = `
+    <form id="f-signup">
+      <p class="lead" style="margin-bottom:18px">Nous vous enverrons un code par e-mail pour confirmer votre adresse.</p>
+      <div class="field"><span>Vous êtes</span>${chipsHtml("role", [["PARENT", "Parent"], ["NANNY", "Nounou"]], [S.pendingRole], "radio")}</div>
+      <label class="field"><span>E-mail</span><input class="input" id="email" type="email" autocomplete="email" required></label>
+      ${passwordField("Mot de passe", "new-password")}
+      <label class="field"><span>Numéro de téléphone</span>
+        <div class="phone"><b>+221</b><input class="input" id="tel" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="77 123 45 67" required></div>
+      </label>
+      <button class="btn block">Créer mon compte</button>
+      <p class="muted small" style="margin-top:14px;text-align:center">Déjà inscrit ? <a href="#/connexion">Se connecter</a></p>
+    </form>`;
+
+  $("#f-signup").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const f = e.target;
+    run(e.submitter, async () => {
+      S.pendingRole = checkedValues(f, "role")[0] || "PARENT";
+      store.set("pendingRole", S.pendingRole);
+      const r = await api("POST", "/auth/register", {
+        email: $("#email").value, password: $("#password").value, phone: $("#tel").value, role: S.pendingRole,
+      });
+      screenVerifyEmail(r);
+    });
+  });
+}
+
+function screenForgot() {
+  setHeader("Mot de passe oublié", "#/connexion");
+  view().innerHTML = `
+    <form id="f-forgot">
+      <p class="lead" style="margin-bottom:18px">Indiquez votre e-mail : nous vous envoyons un code pour choisir un nouveau mot de passe.</p>
+      <label class="field"><span>E-mail</span><input class="input" id="email" type="email" autocomplete="email" required></label>
+      <button class="btn block">Recevoir le code</button>
+    </form>
+    <form id="f-reset" hidden></form>`;
+
+  $("#f-forgot").addEventListener("submit", (e) => {
     e.preventDefault();
     run(e.submitter, async () => {
-      const r = await api("POST", "/auth/otp/verify", { phone: $("#tel").value, code: $("#code").value.trim(), role: S.pendingRole });
-      saveSession(r);
-      toast(r.isNew ? "Bienvenue !" : "Vous êtes connecté");
-      go(r.hasProfile ? "#/" : "#/bienvenue");
+      const email = $("#email").value;
+      const r = await api("POST", "/auth/password/forgot", { email });
+      $("#f-forgot").hidden = true;
+      const reset = $("#f-reset");
+      reset.innerHTML = `
+        <p class="lead" style="margin-bottom:18px">${esc(r.devCode ? codeSentMsg(r) : `Si un compte existe pour ${r.email}, un code vient d'y être envoyé. Pensez à regarder dans les courriers indésirables.`)}</p>
+        ${codeField(r)}
+        ${passwordField("Nouveau mot de passe", "new-password")}
+        <button class="btn block">Changer mon mot de passe</button>`;
+      reset.hidden = false;
+      $("#code").focus();
+      reset.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        run(ev.submitter, async () => {
+          loggedIn(await api("POST", "/auth/password/reset", { email, code: $("#code").value.trim(), password: $("#password").value }));
+          toast("Mot de passe changé");
+        });
+      });
     });
   });
 }
@@ -515,7 +617,7 @@ async function parentSearch() {
     f.type = checkedValues(form, "type")[0] ?? "";
     f.profile = checkedValues(form, "profile")[0] ?? "";
     f.firstAid = form.firstAid.checked;
-    f.maxRate = form.cheap.checked ? "2500" : "";
+    f.maxRate = form.cheap.checked ? String(Math.floor(250_000 / (100 + S.config.feePct))) : "";
     run(null, load);
   });
   await load();
@@ -525,7 +627,7 @@ function nannyCard(n) {
   return `<a class="card tap nanny-card" href="#/nounou/${n.id}">
     ${pagne(n.fullName)}
     <div class="grow">
-      <div class="row" style="align-items:flex-start"><h3 class="grow">${esc(n.fullName)}</h3><span class="price">${fcfa(n.hourlyRateXof)}<small>/h</small></span></div>
+      <div class="row" style="align-items:flex-start"><h3 class="grow">${esc(n.fullName)}</h3><span class="price">${fcfa(prixParent(n.hourlyRateXof))}<small>/h</small></span></div>
       <p class="meta">${esc(n.neighborhood)} · ${n.isStudent ? `Étudiante${n.school ? " " + esc(n.school) : ""}` : plural(n.experienceYears, "an") + " d'expérience"}</p>
       <div class="tags">
         <span class="tag verified">Vérifiée</span>
@@ -585,7 +687,7 @@ async function parentNanny(id) {
       ${n.reviews.filter((r) => r.comment).map((r) => `<div class="panel"><p style="margin:0 0 4px">« ${esc(r.comment)} »</p><p class="muted small" style="margin:0">${dateFr(r.createdAt, { month: "long", year: "numeric" })}</p></div>`).join("")}`
       : `<p class="muted">${n.ratingCount ? `Note moyenne de ${String(n.ratingAvg).replace(".", ",")} sur ${n.ratingCount} gardes.` : "Pas encore d'avis : soyez la première famille à la noter."}</p>`}
     <div class="sticky-cta">
-      <div class="grow"><span class="price" style="font-size:20px">${fcfa(n.hourlyRateXof)}</span><span class="muted small"> / heure</span></div>
+      <div class="grow"><span class="price" style="font-size:20px">${fcfa(prixParent(n.hourlyRateXof))}</span><span class="muted small"> / heure</span></div>
       <a class="btn" href="#/reserver/${n.id}">Réserver</a>
     </div>`;
 }
@@ -607,7 +709,7 @@ async function parentBook(id) {
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
   view().innerHTML = `
-    <div class="row" style="margin-bottom:16px">${pagne(n.fullName, "sm")}<div class="grow"><h3>${esc(n.fullName)}</h3><span class="muted small">${fcfa(n.hourlyRateXof)} / heure</span></div></div>
+    <div class="row" style="margin-bottom:16px">${pagne(n.fullName, "sm")}<div class="grow"><h3>${esc(n.fullName)}</h3><span class="muted small">${fcfa(prixParent(n.hourlyRateXof))} / heure</span></div></div>
     <form id="f">
       <label class="field"><span>Type de garde</span><select class="input" name="type">${n.bookingTypes.map((t) => `<option value="${t}">${TYPES[t]}</option>`).join("")}</select></label>
       <div class="two">
@@ -631,13 +733,11 @@ async function parentBook(id) {
   const form = $("#f");
   const recap = () => {
     const h = Number(form.hours.value);
-    const amount = n.hourlyRateXof * h;
-    const fee = Math.round((amount * S.config.feePct) / 100);
+    const total = prixParent(n.hourlyRateXof) * h;
     $("#recap").innerHTML = `
-      <div class="kv"><span>${fcfa(n.hourlyRateXof)} × ${plural(h, "heure")}</span><span>${fcfa(amount)}</span></div>
-      <div class="kv"><span>Frais de service (${S.config.feePct} %)</span><span>${fcfa(fee)}</span></div>
-      <div class="kv total"><span>Total</span><span>${fcfa(amount + fee)}</span></div>`;
-    $("#pay").textContent = `Payer ${fcfa(amount + fee)} et envoyer la demande`;
+      <div class="kv"><span>${fcfa(prixParent(n.hourlyRateXof))} × ${plural(h, "heure")}</span><span>${fcfa(total)}</span></div>
+      <div class="kv total"><span>Total</span><span>${fcfa(total)}</span></div>`;
+    $("#pay").textContent = `Payer ${fcfa(total)} et envoyer la demande`;
   };
   form.addEventListener("change", recap);
   recap();
@@ -841,6 +941,13 @@ async function nannyProfile(force = false) {
   return S.cache.nanny;
 }
 
+/** Sous le tarif horaire de la nounou : ce qu'elle touche vraiment par heure. */
+function netHint(form) {
+  const show = () => { $("[data-net]", form).textContent = `Vous recevez ${fcfa(netNounou(Number(form.rate.value) || 0))} par heure de garde.`; };
+  form.rate.addEventListener("input", show);
+  show();
+}
+
 function nannyOnboarding() {
   setHeader("Votre profil de nounou");
   setTabs(null);
@@ -850,7 +957,7 @@ function nannyOnboarding() {
       <label class="field"><span>Nom complet</span><input class="input" name="fullName" autocomplete="name" required minlength="2"><small>Tel qu'il figure sur votre pièce d'identité.</small></label>
       <div class="two">
         <label class="field"><span>Quartier</span><select class="input" name="neighborhood">${optionsQuartiers("Mermoz")}</select></label>
-        <label class="field"><span>Tarif par heure</span><input class="input" name="rate" type="number" inputmode="numeric" min="500" max="20000" step="100" value="2500" required></label>
+        <label class="field"><span>Tarif par heure</span><input class="input" name="rate" type="number" inputmode="numeric" min="500" max="20000" step="100" value="2500" required><small data-net></small></label>
       </div>
       <label class="field"><span>Années d'expérience avec des enfants</span><input class="input" name="years" type="number" inputmode="numeric" min="0" max="50" value="1"></label>
       <label class="toggle"><span><b>Je suis étudiante</b><br><span class="muted small">Un certificat de scolarité vous sera demandé.</span></span><input type="checkbox" name="isStudent"></label>
@@ -867,6 +974,7 @@ function nannyOnboarding() {
       <button class="btn block">Créer mon profil</button>
     </form>`;
   const f = $("#f");
+  netHint(f);
   f.isStudent.addEventListener("change", () => { $("#student").hidden = !f.isStudent.checked; f.school.required = f.isStudent.checked; });
   f.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -922,7 +1030,7 @@ async function nannyHome() {
       <div class="row"><h3 class="grow">${esc(b.parent.fullName)}</h3><span class="price">${fcfa(net(b))}</span></div>
       <p class="meta">${esc(TYPES[b.type])} · ${esc(b.parent.neighborhood)}<br>${quand(b.startAt)} · ${b.hours} h</p>
       ${b.instructions ? `<p class="small" style="background:var(--sky);padding:8px 10px;border-radius:10px">${esc(b.instructions)}</p>` : ""}
-      <p class="small muted">Vous recevrez ${fcfa(net(b))} après la garde (commission de ${S.config.commissionPct} % déduite). Répondez dans ${left(b.respondBy)}.</p>
+      <p class="small muted">Vous recevrez ${fcfa(net(b))} après la garde. Répondez dans ${left(b.respondBy)}.</p>
       <div class="btn-row"><button class="btn ghost small" data-refuse="${b.id}">Refuser</button><button class="btn ok small" data-accept="${b.id}">Accepter</button></div>
     </div>`;
 
@@ -1070,7 +1178,7 @@ async function nannyAccount() {
       <h2>Mon annonce</h2>
       <label class="field"><span>Présentation</span><textarea class="input" name="bio" maxlength="600">${esc(n.bio || "")}</textarea></label>
       <div class="two">
-        <label class="field"><span>Tarif par heure</span><input class="input" name="rate" type="number" min="500" max="20000" step="100" value="${n.hourlyRateXof}"></label>
+        <label class="field"><span>Tarif par heure</span><input class="input" name="rate" type="number" min="500" max="20000" step="100" value="${n.hourlyRateXof}"><small data-net></small></label>
         <label class="field"><span>Quartier</span><select class="input" name="neighborhood">${optionsQuartiers(n.neighborhood)}</select></label>
       </div>
       <p class="muted small" style="margin-top:-6px">Un changement de tarif ne modifie pas les gardes déjà réservées.</p>
@@ -1081,9 +1189,10 @@ async function nannyAccount() {
       ${locked ? `<p class="muted small">Nom et statut d'étudiante sont vérifiés : pour les changer, contactez l'équipe.</p>` : ""}
       <button class="btn block">Enregistrer mon annonce</button>
     </form>
-    <p class="muted small" style="margin-top:20px">Connectée avec le ${esc(S.user.phone)}</p>
+    <p class="muted small" style="margin-top:20px">Connectée avec ${esc(S.user.email || S.user.phone)}</p>
     <button class="btn danger block" id="logout">Se déconnecter</button>`;
 
+  netHint($("#f-profile"));
   $("#f-slots").addEventListener("submit", (e) => {
     e.preventDefault();
     const slots = checkedValues(e.target, "slot").map((v) => { const [d, s, en] = v.split("|"); return { weekday: Number(d), startTime: s, endTime: en }; });
