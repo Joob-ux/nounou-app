@@ -1,0 +1,375 @@
+// Modele de donnees - marketplace de garde d'enfants
+// Montants en entiers, en FCFA (pas de decimales)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PARENT
+  NANNY
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum VerificationStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum DocumentType {
+  CNI
+  CASIER_JUDICIAIRE
+  JUSTIFICATIF_DOMICILE
+  CERTIFICAT_SCOLARITE
+  REFERENCE
+}
+
+enum BookingType {
+  PONCTUELLE
+  SORTIE_ECOLE
+  REGULIERE
+  NUIT
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  PAID_OUT
+  REFUSED
+  EXPIRED
+  CANCELLED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  PENDING
+  ESCROW
+  RELEASED
+  REFUNDED
+  FAILED
+}
+
+enum PayoutStatus {
+  REQUESTED
+  PROCESSING
+  PAID
+  FAILED
+}
+
+enum PaymentMethod {
+  WAVE
+  ORANGE_MONEY
+  FREE_MONEY
+  CARD
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  phone        String     @unique
+  email        String?    @unique
+  passwordHash String?
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  lang         String     @default("fr")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  parentProfile ParentProfile?
+  nannyProfile  NannyProfile?
+  otpCodes      OtpCode[]
+  refreshTokens RefreshToken[]
+  sentMessages  Message[]      @relation("MessageSender")
+  auditLogs     AuditLog[]
+}
+
+model OtpCode {
+  id        String    @id @default(cuid())
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone     String
+  codeHash  String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([phone, createdAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  device    String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model ParentProfile {
+  id           String  @id @default(cuid())
+  userId       String  @unique
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName     String
+  neighborhood String
+  address      String?
+  latitude     Float?
+  longitude    Float?
+
+  children Child[]
+  bookings Booking[]
+}
+
+model Child {
+  id           String        @id @default(cuid())
+  parentId     String
+  parent       ParentProfile @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  firstName    String
+  birthYear    Int
+  specialNeeds String?
+}
+
+model NannyProfile {
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName           String
+  photoUrl           String?
+  bio                String?
+  neighborhood       String
+  latitude           Float?
+  longitude          Float?
+  radiusKm           Int                @default(5)
+  hourlyRateXof      Int
+  languages          String[]
+  experienceYears    Int                @default(0)
+  isStudent          Boolean            @default(false)
+  school             String?
+  fieldOfStudy       String?
+  firstAidCertified  Boolean            @default(false)
+  bookingTypes       BookingType[]
+  verificationStatus VerificationStatus @default(PENDING)
+  verifiedAt         DateTime?
+  examModeUntil      DateTime?
+  ratingAvg          Float              @default(0)
+  ratingCount        Int                @default(0)
+  createdAt          DateTime           @default(now())
+
+  documents      VerificationDocument[]
+  availabilities Availability[]
+  bookings       Booking[]
+  wallet         Wallet?
+
+  @@index([neighborhood, verificationStatus])
+}
+
+model VerificationDocument {
+  id         String             @id @default(cuid())
+  nannyId    String
+  nanny      NannyProfile       @relation(fields: [nannyId], references: [id], onDelete: Cascade)
+  type       DocumentType
+  fileKey    String
+  status     VerificationStatus @default(UNDER_REVIEW)
+  reviewedBy String?
+  reviewedAt DateTime?
+  note       String?
+  createdAt  DateTime           @default(now())
+
+  @@index([nannyId])
+}
+
+model Availability {
+  id            String       @id @default(cuid())
+  nannyId       String
+  nanny         NannyProfile @relation(fields: [nannyId], references: [id], onDelete: Cascade)
+  weekday       Int?
+  exceptionDate DateTime?
+  startTime     String
+  endTime       String
+  isAvailable   Boolean      @default(true)
+
+  @@index([nannyId])
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  parentId       String
+  parent         ParentProfile @relation(fields: [parentId], references: [id])
+  nannyId        String
+  nanny          NannyProfile  @relation(fields: [nannyId], references: [id])
+  type           BookingType
+  recurrenceRule String?
+  address        String
+  instructions   String?
+  startAt        DateTime
+  hours          Int
+  hourlyRateXof  Int
+  amountXof      Int
+  feeXof         Int
+  commissionXof  Int
+  totalXof       Int
+  status         BookingStatus @default(PENDING)
+  respondBy      DateTime
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  missions     Mission[]
+  payments     Payment[]
+  conversation Conversation?
+
+  @@index([nannyId, status])
+  @@index([parentId, status])
+}
+
+model Mission {
+  id             String    @id @default(cuid())
+  bookingId      String
+  booking        Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  checkinAt      DateTime?
+  checkinLat     Float?
+  checkinLng     Float?
+  checkoutAt     DateTime?
+  checkoutLat    Float?
+  checkoutLng    Float?
+  releaseAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  reviews  Review[]
+  disputes Dispute[]
+
+  @@index([bookingId])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  bookingId   String
+  booking     Booking       @relation(fields: [bookingId], references: [id])
+  method      PaymentMethod
+  provider    String
+  providerRef String?       @unique
+  amountXof   Int
+  status      PaymentStatus @default(PENDING)
+  escrowUntil DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([bookingId])
+}
+
+model Wallet {
+  id         String       @id @default(cuid())
+  nannyId    String       @unique
+  nanny      NannyProfile @relation(fields: [nannyId], references: [id], onDelete: Cascade)
+  balanceXof Int          @default(0)
+  pendingXof Int          @default(0)
+  updatedAt  DateTime     @updatedAt
+
+  payouts Payout[]
+}
+
+model Payout {
+  id          String       @id @default(cuid())
+  walletId    String
+  wallet      Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amountXof   Int
+  method      PaymentMethod
+  phone       String
+  status      PayoutStatus @default(REQUESTED)
+  providerRef String?
+  createdAt   DateTime     @default(now())
+
+  @@index([walletId])
+}
+
+model Review {
+  id            String    @id @default(cuid())
+  missionId     String
+  mission       Mission   @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  authorId      String
+  targetId      String
+  punctuality   Int
+  care          Int
+  communication Int
+  instructions  Int
+  comment       String?
+  publishedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([missionId, authorId])
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  bookingId String    @unique
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  messages  Message[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id])
+  body           String
+  flagged        Boolean      @default(false)
+  sentAt         DateTime     @default(now())
+
+  @@index([conversationId, sentAt])
+}
+
+model Dispute {
+  id         String        @id @default(cuid())
+  missionId  String
+  mission    Mission       @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  openedBy   String
+  reason     String
+  status     DisputeStatus @default(OPEN)
+  decision   String?
+  refundXof  Int           @default(0)
+  handledBy  String?
+  createdAt  DateTime      @default(now())
+  resolvedAt DateTime?
+
+  @@index([status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  admin     User     @relation(fields: [adminId], references: [id])
+  action    String
+  entity    String
+  entityId  String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}

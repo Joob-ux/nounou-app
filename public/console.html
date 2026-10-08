@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Console de test — API nounous</title>
+<style>
+  :root{--nuit:#16324F;--soleil:#F2B632;--vert:#1F8F4E;--trait:#D3E0EC;--doux:#5A6B7C;--fond:#F4F8FB}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--fond);color:#1C2430}
+  header{background:var(--nuit);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0}
+  #session{margin-left:auto;font-size:14px;background:rgba(255,255,255,.12);padding:6px 12px;border-radius:999px}
+  main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;padding:18px;max-width:1300px;margin:0 auto}
+  @media (max-width:900px){main{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:16px}
+  section{background:#fff;border:1px solid var(--trait);border-radius:14px;padding:16px}
+  h2{font-size:16px;margin:0 0 10px;color:var(--nuit)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:8px}
+  .row>label{flex:1;min-width:120px}
+  label{font-size:12px;font-weight:700;color:var(--doux);display:block}
+  input,select{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--trait);border-radius:8px;margin-top:3px}
+  button{font:inherit;font-weight:700;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;background:var(--nuit);color:#fff}
+  button.vert{background:var(--vert)}
+  button.clair{background:#E8F1F8;color:var(--nuit)}
+  .aide{font-size:13px;color:var(--doux);margin:6px 0 0}
+  .item{border:1px solid var(--trait);border-radius:10px;padding:10px;margin-top:8px}
+  .item b{color:var(--nuit)}
+  .item .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .statut{font-size:12px;font-weight:700;background:#FFF3D1;color:#7A5A06;padding:2px 8px;border-radius:999px}
+  #journal{background:#0F1B2A;color:#D6E4F0;font:12.5px/1.5 ui-monospace,Consolas,monospace;border-radius:14px;padding:14px;height:calc(100vh - 110px);overflow:auto;position:sticky;top:18px}
+  #journal .req{color:var(--soleil);font-weight:700;margin-top:12px}
+  #journal .ok{color:#7EE2A8}
+  #journal .ko{color:#FF8A80}
+  #journal pre{margin:4px 0 0;white-space:pre-wrap;word-break:break-word}
+  .comptes{font-size:13px;color:var(--doux)}
+  .comptes code{background:#E8F1F8;padding:1px 6px;border-radius:5px;color:var(--nuit);cursor:pointer}
+  .cache{display:none}
+  .chk{display:flex;gap:6px;align-items:center;font-size:14px;font-weight:400;color:#1C2430}
+  .chk input{width:auto;margin:0}
+  textarea{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--trait);border-radius:8px;margin-top:3px;min-height:64px}
+  .pastille{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:#E8F1F8;color:var(--nuit)}
+  .pastille.VERIFIED{background:#DDF3E6;color:var(--vert)}
+  .pastille.REJECTED,.pastille.MISSING{background:#FDE2DF;color:#B3261E}
+  .pastille.UNDER_REVIEW{background:#FFF3D1;color:#7A5A06}
+  .ligne{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--trait);flex-wrap:wrap}
+  .ligne:last-child{border-bottom:0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Console de test de l'API</h1>
+  <span id="session">Non connecté</span>
+</header>
+
+<main>
+  <div class="col">
+    <section>
+      <h2>1. Connexion par OTP</h2>
+      <p class="comptes">Comptes de test (clique pour remplir) :
+        parent <code data-tel="774444444">77 444 44 44</code>,
+        nounou Fatou <code data-tel="771111111">77 111 11 11</code>,
+        nounou Mariama <code data-tel="772222222">77 222 22 22</code>,
+        admin <code data-tel="770000000">77 000 00 00</code></p>
+      <div class="row">
+        <label>Téléphone<input id="tel" value="774444444"></label>
+        <label>Si nouveau compte<select id="role"><option value="PARENT">Parent</option><option value="NANNY">Nounou</option></select></label>
+        <button id="btnOtp">Recevoir le code</button>
+      </div>
+      <div class="row">
+        <label>Code reçu<input id="code" maxlength="6" placeholder="6 chiffres"></label>
+        <button id="btnVerify" class="vert">Se connecter</button>
+        <button id="btnLogout" class="clair">Déconnexion</button>
+      </div>
+      <p class="aide">Mode démo : aucun SMS n'est envoyé, le code se remplit tout seul.</p>
+    </section>
+
+    <section id="secParent" class="cache">
+      <h2>Mon profil famille (parent)</h2>
+      <div class="row">
+        <label>Nom de la famille<input id="pNom" value="Famille Ndiaye"></label>
+        <label>Quartier<input id="pQuartier" value="Mermoz"></label>
+      </div>
+      <div class="row">
+        <label>Prénom enfant<input id="eNom" value="Khadija"></label>
+        <label>Année de naissance<input id="eAnnee" type="number" value="2021"></label>
+      </div>
+      <div class="row">
+        <button id="btnPCreate" class="vert">Créer mon profil</button>
+        <button id="btnPChild" class="clair">Ajouter cet enfant</button>
+        <button id="btnPGet" class="clair">Voir mon profil</button>
+      </div>
+      <div id="pVue"></div>
+    </section>
+
+    <section id="secNanny" class="cache">
+      <h2>Mon profil et mon dossier (nounou)</h2>
+      <div class="row">
+        <label>Nom complet<input id="nNom" value="Aminata Fall"></label>
+        <label>Quartier<input id="nQuartier" value="Mermoz"></label>
+        <label>Tarif / h<input id="nTarif" type="number" value="2500"></label>
+      </div>
+      <div class="row">
+        <label class="chk"><input id="nEtudiante" type="checkbox" checked> Étudiante</label>
+        <label>Établissement<input id="nEcole" value="UCAD"></label>
+      </div>
+      <label>Bio<textarea id="nBio">Étudiante en sciences de l'éducation, j'ai gardé mes neveux pendant 4 ans. Patiente et ponctuelle.</textarea></label>
+      <div class="row" style="margin-top:8px">
+        <label class="chk"><input type="checkbox" class="nType" value="PONCTUELLE" checked> Ponctuelle</label>
+        <label class="chk"><input type="checkbox" class="nType" value="SORTIE_ECOLE" checked> Sortie d'école</label>
+        <label class="chk"><input type="checkbox" class="nType" value="NUIT"> Nuit</label>
+      </div>
+      <div class="row">
+        <button id="btnNCreate" class="vert">Créer mon profil</button>
+        <button id="btnNSave" class="clair">Enregistrer les modifs</button>
+        <button id="btnNDispo" class="clair">Dispo lun–ven 16h–19h</button>
+      </div>
+      <div class="row">
+        <label>Pièce<select id="docType">
+          <option value="CNI">Carte d'identité</option>
+          <option value="CASIER_JUDICIAIRE">Casier judiciaire</option>
+          <option value="JUSTIFICATIF_DOMICILE">Justificatif de domicile</option>
+          <option value="REFERENCE">Référence</option>
+          <option value="CERTIFICAT_SCOLARITE">Certificat de scolarité</option>
+        </select></label>
+        <label>Fichier (JPG, PNG, PDF)<input id="docFile" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
+        <button id="btnDoc">Envoyer</button>
+      </div>
+      <div class="row">
+        <button id="btnNGet" class="clair">Voir mon dossier</button>
+        <button id="btnSubmit" class="vert">Soumettre mon dossier</button>
+      </div>
+      <div id="nVue"></div>
+    </section>
+
+    <section id="secAdmin" class="cache">
+      <h2>Back-office (admin)</h2>
+      <div class="row">
+        <label>Statut<select id="aStatut">
+          <option value="UNDER_REVIEW">À examiner</option>
+          <option value="PENDING">Incomplets</option>
+          <option value="VERIFIED">Vérifiées</option>
+          <option value="REJECTED">Refusées</option>
+        </select></label>
+        <button id="btnAList">Lister</button>
+        <button id="btnAStats" class="clair">Statistiques</button>
+      </div>
+      <div id="aListe"></div>
+      <div id="aDossier"></div>
+    </section>
+
+    <section>
+      <h2>2. Recherche de nounous</h2>
+      <div class="row">
+        <label>Quartier<select id="quartier"><option>Mermoz</option><option>Ouakam</option></select></label>
+        <label>Type de garde<select id="type"><option value="PONCTUELLE">Ponctuelle</option><option value="SORTIE_ECOLE">Sortie d'école</option></select></label>
+        <button id="btnSearch">Chercher</button>
+      </div>
+      <div id="resultats"></div>
+    </section>
+
+    <section>
+      <h2>3. Réserver (parent)</h2>
+      <div class="row">
+        <label>Nounou<input id="nannyId" placeholder="clique sur Choisir dans la recherche"></label>
+      </div>
+      <div class="row">
+        <label>Date et heure<input id="startAt" type="datetime-local"></label>
+        <label>Heures<input id="hours" type="number" min="1" max="12" value="3"></label>
+      </div>
+      <div class="row">
+        <label>Adresse<input id="address" value="Villa 42, Cité Mermoz"></label>
+        <label>Moyen<select id="method"><option value="WAVE">Wave</option><option value="ORANGE_MONEY">Orange Money</option></select></label>
+      </div>
+      <button id="btnBook" class="vert">Réserver et payer (simulé)</button>
+    </section>
+
+    <section>
+      <h2>4. Mes réservations / missions</h2>
+      <div class="row">
+        <button id="btnList">Rafraîchir</button>
+        <button id="btnRelease" class="clair">Libérer les fonds maintenant (dev)</button>
+      </div>
+      <div id="reservations"></div>
+    </section>
+
+    <section>
+      <h2>5. Portefeuille (nounou)</h2>
+      <button id="btnWallet">Voir mon portefeuille</button>
+      <div id="wallet"></div>
+    </section>
+  </div>
+
+  <div id="journal" aria-live="polite"><b>Journal des requêtes</b><p class="aide" style="color:#9FB2C4">Chaque appel à l'API s'affiche ici avec sa réponse.</p></div>
+</main>
+
+<script src="console.js"></script>
+</body>
+</html>
